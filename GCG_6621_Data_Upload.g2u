@@ -1,0 +1,173 @@
+﻿Program.Sub.ScreenSU.Start
+Gui.frmUpload..Create(BaseForm)
+Gui.frmUpload..Caption("6621 Part Shipment History Data Upload")
+Gui.frmUpload..Size(11475,1815)
+Gui.frmUpload..MinX(0)
+Gui.frmUpload..MinY(0)
+Gui.frmUpload..Position(0,0)
+Gui.frmUpload..AlwaysOnTop(False)
+Gui.frmUpload..FontName("Tahoma")
+Gui.frmUpload..FontSize(8.25)
+Gui.frmUpload..ControlBox(True)
+Gui.frmUpload..MaxButton(True)
+Gui.frmUpload..MinButton(True)
+Gui.frmUpload..MousePointer(0)
+Gui.frmUpload..Moveable(True)
+Gui.frmUpload..Sizeable(True)
+Gui.frmUpload..ShowInTaskBar(True)
+Gui.frmUpload..TitleBar(True)
+Gui.frmUpload..Event(UnLoad,frmUpload_UnLoad)
+Gui.frmUpload.txtFilePath.Create(TextBox,"",True,9705,300,0,285,375,True,0,"Tahoma",8.25,,1)
+Gui.frmUpload.cmdFileBrowser.Create(Button)
+Gui.frmUpload.cmdFileBrowser.Enabled(True)
+Gui.frmUpload.cmdFileBrowser.Visible(True)
+Gui.frmUpload.cmdFileBrowser.Zorder(0)
+Gui.frmUpload.cmdFileBrowser.Size(705,300)
+Gui.frmUpload.cmdFileBrowser.Position(10065,375)
+Gui.frmUpload.cmdFileBrowser.Caption("^")
+Gui.frmUpload.cmdFileBrowser.FontName("Tahoma")
+Gui.frmUpload.cmdFileBrowser.FontSize(8.25)
+Gui.frmUpload.cmdFileBrowser.Event(Click,cmdFileBrowser_Click)
+Gui.frmUpload.cmdOK.Create(Button)
+Gui.frmUpload.cmdOK.Enabled(True)
+Gui.frmUpload.cmdOK.Visible(True)
+Gui.frmUpload.cmdOK.Zorder(0)
+Gui.frmUpload.cmdOK.Size(855,345)
+Gui.frmUpload.cmdOK.Position(285,780)
+Gui.frmUpload.cmdOK.Caption("OK")
+Gui.frmUpload.cmdOK.FontName("Tahoma")
+Gui.frmUpload.cmdOK.FontSize(8.25)
+Gui.frmUpload.cmdOK.Event(Click,cmdOK_Click)
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+V.Global.bConOpen.Declare(Boolean, False)
+Program.Sub.Preflight.End
+Program.Sub.Main.Start
+'Written by: Brandon Medina 
+'Customer: Dayton Rogers Manufacturing CO
+'Quote: 13238-0
+'Desc: Script will allow customer to easily import custom table GCG_6621_SHIP_HIST
+F.Intrinsic.Control.Try
+	Gui.frmUpload..Show
+	
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, V.Ambient.CurrentSubroutine)
+F.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.ErrorMsg.Start
+v.Local.sError.Declare
+
+F.Intrinsic.Control.If(V.Global.bConOpen)
+	F.ODBC.Connection!con.Close
+F.Intrinsic.Control.EndIf
+
+'Generic Error message.
+f.Intrinsic.String.Build("Project GCG_6621_Data_Upload.g2u {0}{0}Subroutine: {1}{0}Error: {2} with Description: {3}", v.Ambient.NewLine, v.Args.CurrentSub, v.Ambient.ErrorNumber, v.Ambient.ErrorDescription, v.Local.sError)
+f.Intrinsic.UI.Msgbox(v.Local.sError)
+F.Intrinsic.Control.CallSub(frmUpload_UnLoad)
+Program.Sub.ErrorMsg.End
+Program.Sub.cmdOK_Click.Start
+F.Intrinsic.Control.Try
+	V.Local.bExists.Declare
+	V.Local.sFile.Declare
+	V.Local.sRet.Declare
+	V.Local.sMsg.Declare
+	V.Local.sSQL.Declare
+	V.Local.iRet.Declare
+	
+	'Disable events 
+	F.Intrinsic.Control.BlockEvents
+	'Uploading Spreadsheet
+	F.Intrinsic.UI.InvokeWaitDialog("Uploading Spreadsheet...", "Please Wait")
+	
+	'Verify File Exists 
+	V.Local.sFile.Set(V.Screen.frmUpload!txtFilePath.Text.Trim)
+	F.Intrinsic.File.Exists(V.Local.sFile, V.Local.bExists)
+	F.Intrinsic.Control.If(V.Local.bExists.Not)
+		F.Intrinsic.UI.Msgbox("File does not exist.", "Attention")
+		F.Intrinsic.Control.UnBlockEvents
+		F.Intrinsic.UI.CloseWaitDialog
+		F.Intrinsic.Control.ExitSub
+	F.Intrinsic.Control.EndIf
+
+	'Verify file is of correct type .xls or .xlsx
+	F.Intrinsic.File.GetExtensionComponent(V.Local.sFile, V.Local.sRet)
+	F.Intrinsic.Control.If(V.Local.sRet, <>, "xls", AND, V.Local.sRet, <>, "xlsx")
+		F.Intrinsic.UI.Msgbox("Only .xls or .xlsx files are accepted.", "Attention")
+		F.Intrinsic.Control.ExitSub
+	F.Intrinsic.Control.EndIf
+	
+	'Verify that Custom table is empty/exists. And warn user if not. Ask if they'd like to continue 
+	F.ODBC.Connection!con.OpenCompanyConnection
+	V.Global.bConOpen.Set(True)
+	
+	F.ODBC.Connection!con.TableExists("GCG_6621_SHIP_HIST", V.Local.bExists)
+	F.Intrinsic.Control.If(V.Local.bExists.Not)
+		V.Local.sMsg.Set("Custom table GCG_6621_SHIP_HIST does not exist. Try updating/installing via ARC, or contact Global Shop for Assistance")
+		F.Intrinsic.Control.End
+	F.Intrinsic.Control.EndIf
+	
+	V.Local.sSQL.Set("select count(PART) from GCG_6621_SHIP_HIST")
+	F.ODBC.Connection!con.ExecuteAndReturn(V.Local.sSQL, V.Local.iRet)
+	F.Intrinsic.Control.If(V.Local.iRet, >, 0)
+		F.Intrinsic.String.Build("Custom table GCG_6621_SHIP_HIST already contains records. Any duplicate records already in the table will be overwritten by the shipping date in the spreadsheet.{0}Would you like to proceed?", V.Ambient.NewLine, V.Local.sMsg)
+		F.Intrinsic.UI.Msgbox(V.Local.sMsg, "Continue w/ Upload?", 4, V.Local.sRet)
+		F.Intrinsic.Control.If(V.Local.sRet, =, 7)
+			F.Intrinsic.UI.CloseWaitDialog
+			F.Intrinsic.Control.End
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.EndIf
+	
+	'Begin Reading Spreadsheet by row 
+	F.Automation.MSExcel.ReadSpreadsheet(V.Local.sFile, 2, , V.Local.sRet)
+	
+	'Remove Midnight Time Stamp GAB Adds 
+	F.Intrinsic.String.Replace(V.Local.sRet, " 12:00:00 AM", "", V.Local.sRet)
+
+	F.Data.Datatable.CreateFromString("dtImport", V.Local.sRet, "Part*!*Date", "String*!*String", "*!*", "$!$", True)
+		'Deletes column captions
+	F.Data.Datatable.DeleteRow("dtImport", 0)
+	
+	'Format dates
+	F.Data.DataTable.AddColumn("dtImport", "Format Date", "String")
+	F.Data.DataTable.SetValueFormat("dtImport", -1, "Date", "Format Date", "YYYY-MM-DD")
+	
+	F.Data.DataTable.SaveToDB("dtImport", "con", "GCG_6621_SHIP_HIST", "Part", 256, "Part@!@PART*!*Format Date@!@SHIP_DATE")
+	
+	F.ODBC.Connection!con.Close
+	V.Global.bConOpen.Set(False)
+	
+	F.Data.DataTable.Close("dtImport")
+	
+	F.Intrinsic.UI.CloseWaitDialog
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, V.Ambient.CurrentSubroutine)
+F.Intrinsic.Control.EndTry
+Program.Sub.cmdOK_Click.End
+Program.Sub.cmdFileBrowser_Click.Start
+F.Intrinsic.Control.Try
+	V.Local.sFileExcel.Declare
+	
+	'Open a file explorer window and look for an xls sheet
+	F.Intrinsic.UI.ShowOpenFileDialog("","*|*.*",V.Local.sFileExcel)
+	F.Intrinsic.Control.If(V.Local.sFileExcel,=,"***CANCEL***")
+		F.Intrinsic.UI.Msgbox("No File Was Selected")
+		F.Intrinsic.Control.ExitSub
+	F.Intrinsic.Control.EndIf
+	
+	Gui.frmUpload.txtFilePath.Text(V.Local.sFileExcel)
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, V.Ambient.CurrentSubroutine)
+F.Intrinsic.Control.EndTry
+Program.Sub.cmdFileBrowser_Click.End
+Program.Sub.frmUpload_UnLoad.Start
+F.Intrinsic.Control.End
+Program.Sub.frmUpload_UnLoad.End
+
+Program.Sub.Comments.Start
+${$5$}$3.0.0.0$}$1
+${$6$}$bmedina$}$20220210104407422$}$kOipCrsyLBVj2KoSwkcdK23ChxGVcBlEsO23xXkrXwhB/KI2FXeEZAVnwgv1DQGcaLoT1a2Xbo0=
+Program.Sub.Comments.End
