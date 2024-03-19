@@ -1,0 +1,263 @@
+﻿Program.Sub.Preflight.Start
+V.Global.bConOpen.Declare(Boolean, False)
+V.Global.sDate.Declare
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+'Written by: Brandon Medina 
+'Customer: Dayton Rogers Manufacturing CO
+'Quote: 13238-0
+'Desc: Script will allow sales commission rates to be set to 1, or 2% from the shipped screen depending on the time elapsed since each part's first ship date. 
+F.Intrinsic.Control.Try
+	F.Intrinsic.Control.SelectCase(V.Caller.Hook)
+		F.Intrinsic.Control.Case("28530")
+			'BDF: AUX001
+			F.Intrinsic.Control.CallSub(checkTable)
+			F.Intrinsic.Control.CallSub(setCommission)
+	F.Intrinsic.Control.EndSelect
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, V.Ambient.CurrentSubroutine)
+F.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.ErrorMsg.Start
+v.Local.sError.Declare
+
+F.Intrinsic.Control.If(V.Global.bConOpen)
+	F.ODBC.Connection!con.Close
+F.Intrinsic.Control.EndIf
+
+V.Passed.777777.Set(1)
+'Generic Error message.
+f.Intrinsic.String.Build("Project GCG_6621_Commission_Parts.g2u {0}{0}Subroutine: {1}{0}Error: {2} with Description: {3}", v.Ambient.NewLine, v.Args.CurrentSub, v.Ambient.ErrorNumber, v.Ambient.ErrorDescription, v.Local.sError)
+f.Intrinsic.UI.Msgbox(v.Local.sError)
+Program.Sub.ErrorMsg.End
+
+Program.Sub.checkTable.Start
+F.Intrinsic.Control.Try
+	V.Local.bExists.Declare
+	V.Local.sRet.Declare
+	V.Local.sMsg.Declare
+	
+	F.ODBC.Connection!con.OpenCompanyConnection
+	V.Global.bConOpen.Set(True)
+	F.ODBC.Connection!con.TableExists("GCG_6621_SHIP_HIST", V.Local.bExists)
+	
+	
+	F.Intrinsic.Control.If(V.Local.bExists.Not)
+		F.Intrinsic.UI.Msgbox("Custom table: GCG_6621_SHIP_HIST does not exist for this company code. Please contact internal IT for support", "Warning: Custom Table Does Not Exist")
+		V.Passed.777777.Set(1)
+		F.Intrinsic.Control.End
+	F.Intrinsic.Control.Else
+		F.ODBC.Connection!con.ExecuteAndReturn("select count(PART) from GCG_6621_SHIP_HIST", V.Local.sRet)
+		F.Intrinsic.Control.If(V.Local.sRet, =, "0")
+			F.Intrinsic.String.Build("Custom table: GCG_6621_SHIP_HIST does not have any part shipment history data for this company code. Go through the data upload process or contact internal IT for support.{0}If this is intentional, disregard this message, and script will utilize data from Sales History or default to using today's date", V.Ambient.NewLine, V.Local.sMsg)
+			F.Intrinsic.UI.Msgbox(V.Local.sMsg, "Warning: No Data in Custom Table")
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.EndIf
+	
+	F.ODBC.Connection!con.Close
+	V.Global.bConOpen.Set(False)
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, V.Ambient.CurrentSubroutine)
+F.Intrinsic.Control.EndTry
+Program.Sub.checkTable.End
+
+Program.Sub.setCommission.Start
+F.Intrinsic.Control.Try
+	V.Local.sPart.Declare
+	V.Local.sDate.Declare
+	V.Local.sOrder.Declare
+	V.Local.sOrderLine.Declare
+	V.Local.sSalesPerson.Declare
+	V.Local.iRowCount.Declare
+	V.Local.i.Declare
+	V.Local.iShipQty.Declare
+	V.Local.sRowContent.Declare
+	V.Local.sPackingList.Declare
+	V.Local.sSQL.Declare
+	V.Local.sRet.Declare
+	V.Local.sCompareDate.Declare
+	V.Local.iDayDiff.Declare
+	V.Local.iSQLIndex.Declare(Long, 0)
+	V.Local.sFilter.Declare
+	
+	'Packing list number from screen 
+	V.Local.sPackingList.Set(V.Passed.000168)
+	V.Local.sCompareDate.Set(V.Ambient.Date.Formatm/d/yyyy)
+	
+	'Create working table to track Order number/lines, part and date. This will be used to write to core tables later
+	F.Data.DataTable.CreateFromString("dtPartInfo", "", "PART*!*ORDER_NUM*!*ORDER_LINE*!*SALES_PERSON*!*SALES_PER_CODE*!*COM_TYPE*!*DATE_SHIPPED", "String*!*String*!*String*!*String*!*String*!*String*!*String", , , True)
+	'Remove empty row 
+	F.Data.DataTable.DeleteRow("dtPartInfo")
+
+	'Begin by determining which order lines to check/update from BDF. Qty Shipped <> 0 or blank 
+	F.Intrinsic.BDF.Load("Ship_Parts", "AUX001")
+	F.Intrinsic.BDF.ReadRowCount("Ship_Parts", V.Local.iRowCount)
+	V.Local.iRowCount.Set(V.Local.iRowCount.--)
+	
+	F.ODBC.Connection!con.OpenCompanyConnection
+	V.Global.bConOpen.Set(True)
+	'Customer would like match to be done based on type, rather than rate. 
+	'V.Local.sSQL.Set("select distinct OH.ORDER_NO, OH.SALESPERSON as SALESPERSON_CODE, S.SALESPERSON, coalesce(CR.COMMISSION_TYPE, '') as COMMISSION_TYPE, CR.COMMISSION_RATE from V_ORDER_HEADER OH left join COMMISSION_RATE CR on OH.SALESPERSON = CR.SALESPERSON left join V_SALESPEOPLE S on OH.SALESPERSON = S.SALESPERSON_CODE where CR.COMMISSION_RATE in ('0.00000', '0.01000', '0.02000') and OH.ORDER_NO in (")
+	'V.Local.sSQL.Set("select distinct OH.ORDER_NO, OH.SALESPERSON as SALESPERSON_CODE, S.SALESPERSON, coalesce(CR.COMMISSION_TYPE, '') as COMMISSION_TYPE, CR.COMMISSION_RATE from V_ORDER_HEADER OH left join COMMISSION_RATE CR on OH.SALESPERSON = CR.SALESPERSON left join V_SALESPEOPLE S on OH.SALESPERSON = S.SALESPERSON_CODE where CR.COMMISSION_TYPE in ('1STYR', 'SUBSE', '') and OH.ORDER_NO in (")
+	
+	'Account for instances where customer has not set a salesperson on a salesorder about to be shipped. Return house account as salesperson so joins work
+	V.Local.sSQL.Set("select distinct OH.ORDER_NO, IF(OH.SALESPERSON = '', '000', OH.SALESPERSON) as SALESPERSON_CODE, IF(coalesce(S.SALESPERSON, '') = '', 'HOUSE ACCOUNT', S.SALESPERSON) as SALESPERSON, coalesce(CR.COMMISSION_TYPE, '') as COMMISSION_TYPE, coalesce(CR.COMMISSION_RATE, '0.00000') as COMMISSION_RATE from V_ORDER_HEADER OH left join COMMISSION_RATE CR on OH.SALESPERSON = CR.SALESPERSON left join V_SALESPEOPLE S on OH.SALESPERSON = S.SALESPERSON_CODE where OH.ORDER_NO in (")
+	
+	F.Intrinsic.Control.For(V.Local.i, 0, V.Local.iRowCount, 1)
+		F.Intrinsic.BDF.TextMatrix("Ship_Parts", 3, V.Local.i, V.Local.iShipQty)
+		
+		F.Intrinsic.Control.If(V.Local.iShipQty, <>, 0)
+			F.Intrinsic.BDF.ReadRow("Ship_Parts", V.Local.i, V.Local.sRowContent)
+			F.Intrinsic.String.Split(V.Local.sRowContent, "|~|", V.Local.sRowContent)
+			'0: Order 1:Item 2:Order Qty 3:Shipped Qty 4:Net Weight 5:Gross Weight 6:Cartons 7:Back Order Qty 8:Part Number 9:Description 10:Loc 11:UM 12:Available Qty 13:Promise Date
+			'Get salesperson and add to sql query string
+				'Format Order Num 
+			F.Intrinsic.String.LPad(V.Local.sRowContent(0).Trim, "0", 7, V.Local.sRowContent(0))
+			F.Intrinsic.Control.If(V.Local.iSQLIndex, =, 0)
+				F.Intrinsic.String.Concat(V.Local.sSQL, "'", V.Local.sRowContent(0).Trim, "'", V.Local.sSQL)
+				V.Local.iSQLIndex.Set(V.Local.iSQLIndex.++)
+			F.Intrinsic.Control.Else
+				F.Intrinsic.String.Concat(V.Local.sSQL, ", ", "'", V.Local.sRowContent(0).Trim, "'", V.Local.sSQL)
+			F.Intrinsic.Control.EndIf
+			
+			'Format Order line to match that in Zen 
+			F.Intrinsic.String.LPad(V.Local.sRowContent(1).Trim, "0", 3, V.Local.sRowContent(1))
+			F.Intrinsic.String.RPad(V.Local.sRowContent(1).Trim, "0", 4, V.Local.sRowContent(1))
+			'Format part string to strip out the rev 
+			V.Local.sRowContent(8).Set(V.Local.sRowContent(8).Trim)
+			V.Local.sRowContent(8).Set(V.Local.sRowContent(8).Left17)
+			V.Local.sRowContent(8).Set(V.Local.sRowContent(8).Trim)
+			
+			F.Data.DataTable.AddRow("dtPartInfo", "PART", V.Local.sRowContent(8), "ORDER_NUM", V.Local.sRowContent(0).Trim, "ORDER_LINE", V.Local.sRowContent(1).Trim)
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.Next(V.Local.i)
+	
+	F.Intrinsic.String.Concat(V.Local.sSQL, ")", V.Local.sSQL)
+	'Create helper datatable for creating dictionaries, and later to populate commission types
+	F.Data.DataTable.CreateFromSQL("dtSalesPerson", "con", V.Local.sSQL, True)
+	F.Intrinsic.Control.If(V.DataTable.dtSalesPerson.RowCount, =, 0)
+		F.Intrinsic.UI.Msgbox("No commission types and/or rates set up for one or more of the sales orders set for shipment. Please set up and try again. No Commission rates will be set.")
+		V.Passed.777777.Set(1)
+		F.Intrinsic.Control.End
+	F.Intrinsic.Control.EndIf
+	
+	F.Data.Dictionary.CreateFromDataTable("dictSalesCode", "dtSalesPerson", "ORDER_NO", "SALESPERSON_CODE", 4)
+	F.Data.Dictionary.SetDefaultReturn("dictSalesCode", "")
+	F.Data.DataTable.FillFromDictionary("dtPartInfo", "dictSalesCode", "ORDER_NUM", "SALES_PER_CODE")
+	F.Data.Dictionary.Close("dictSalesCode")
+	
+	F.Data.Dictionary.CreateFromDataTable("dictSalesPeople", "dtSalesPerson", "ORDER_NO", "SALESPERSON", 4)
+	F.Data.Dictionary.SetDefaultReturn("dictSalesPeople", "")
+	F.Data.DataTable.FillFromDictionary("dtPartInfo", "dictSalesPeople", "ORDER_NUM", "SALES_PERSON")
+	F.Data.Dictionary.Close("dictSalesPeople")
+	
+	'Create 2 dataviews and send to dictionaries. Dataviews filter based on the commission percentage rates 
+	'1%
+	'V.Local.sFilter.Set("COMMISSION_RATE='0.01000'")
+	V.Local.sFilter.Set("COMMISSION_TYPE = 'SUBSE'")
+	F.Data.DataView.Create("dtSalesPerson", "dvRates1", 22, V.Local.sFilter, "")
+	F.Data.Dictionary.CreateFromDataView("dictComType1", "dtSalesPerson", "dvRates1", "ORDER_NO", "COMMISSION_TYPE")
+	F.Data.Dictionary.SetDefaultReturn("dictComType1", "")
+	'2%
+	'V.Local.sFilter.Set("COMMISSION_RATE='0.02000'")
+	V.Local.sFilter.Set("COMMISSION_TYPE = '1STYR'")
+	F.Data.DataView.Create("dtSalesPerson", "dvRates2", 22, V.Local.sFilter, "")
+	F.Data.Dictionary.CreateFromDataView("dictComType2", "dtSalesPerson", "dvRates2", "ORDER_NO", "COMMISSION_TYPE")
+	F.Data.Dictionary.SetDefaultReturn("dictComType2", "")
+	
+	'Set commission type based on 1st shipment date
+	F.Intrinsic.Control.For(V.Local.i, 0, V.DataTable.dtPartInfo.RowCount--, 1)
+		'F.Intrinsic.Control.If(V.DataTable.dtPartInfo(V.Local.i).SALES_PERSON!FieldValTrim, =, "IN HOUSE")
+		F.Intrinsic.Control.If(V.DataTable.dtPartInfo(V.Local.i).SALES_PERSON!FieldValTrim, =, "HOUSE ACCOUNT")
+			'Clear Order line's commission type so 0% is applied 
+			F.Data.DataTable.SetValue("dtPartInfo", V.Local.i, "COM_TYPE", "")
+		F.Intrinsic.Control.Else
+			'Determine shipment date logic 
+			F.Intrinsic.Control.CallSub(findShipDate, "rowIndex", V.Local.i)
+			'Set date that was found to working table row
+			F.Data.DataTable.SetValue("dtPartInfo", V.Local.i, "DATE_SHIPPED", V.Global.sDate)
+			'Based on date, set commission type 
+			F.Intrinsic.Date.DateDiff("d", V.Global.sDate, V.Local.sCompareDate, V.Local.iDayDiff)
+			F.Intrinsic.Control.If(V.Local.iDayDiff, <=, 365)
+			'2%
+				F.Data.DataTable.SetValue("dtPartInfo", V.Local.i, "COM_TYPE", V.Dictionary.dictComType2![V.DataTable.dtPartInfo(V.Local.i).ORDER_NUM!FieldVal])
+			F.Intrinsic.Control.Else
+			'1%
+				F.Data.DataTable.SetValue("dtPartInfo", V.Local.i, "COM_TYPE", V.Dictionary.dictComType1![V.DataTable.dtPartInfo(V.Local.i).ORDER_NUM!FieldVal])
+			F.Intrinsic.Control.EndIf
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.Next(V.Local.i)
+
+	F.Data.Dictionary.Close("dictComType1")
+	F.Data.Dictionary.Close("dictComType2")
+	F.Data.DataTable.Close("dtSalesPerson")
+	
+	'Commit working table to core table 
+	F.Data.DataTable.SaveToDB("dtPartInfo", "con", "ORDER_LINES", "ORDER_NUM*!*ORDER_LINE", 256, "ORDER_NUM@!@ORDER_NO*!*ORDER_LINE@!@RECORD_NO*!*COM_TYPE@!@COMMISSION_TYPE") 
+	
+	F.Data.DataTable.Close("dtPartInfo")
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, V.Ambient.CurrentSubroutine)
+F.Intrinsic.Control.EndTry
+Program.Sub.setCommission.End
+
+Program.Sub.findShipDate.Start
+F.Intrinsic.Control.Try
+	V.Local.i.Declare
+	V.Local.sFilter.Declare
+	V.Local.sSQL.Declare
+	V.Local.sRet.Declare
+	V.Local.bMultiDate.Declare
+	V.Local.sMsg.Declare
+	V.Local.sDate.Declare
+	
+	'Subroutine will return the first shipment date for passed part from dtPartInfo
+	V.Local.i.Set(V.Args.rowIndex)
+		
+	'Begin by looking at custom table 
+	'F.Intrinsic.String.Build("select SHIP_DATE from GCG_6621_SHIP_HIST where PART = '{0}'", V.DataTable.dtPartInfo(V.Local.i).PART!FieldValTrim, V.Local.sSQL)
+	F.Intrinsic.String.Build("select SHIP_DATE from GCG_6621_SHIP_HIST where rtrim(left(PART,17)) = '{0}'", V.DataTable.dtPartInfo(V.Local.i).PART!FieldValTrim, V.Local.sSQL)
+	F.ODBC.Connection!con.ExecuteAndReturn(V.Local.sSQL, V.Local.sRet)
+	
+	F.Intrinsic.Control.If(V.Local.sRet, =, "")
+		'Continue to look at Order History 
+		'Remove rev
+		'F.Intrinsic.String.Build("select top 1(DATE_SHIPPED) from ORDER_HIST_LINE where PART = '{0}' and DATE_SHIPPED <> '1900-01-01' order by DATE_SHIPPED asc", V.DataTable.dtPartInfo(V.Local.i).PART!FieldValTrim, V.Local.sSQL)
+		F.Intrinsic.String.Build("select top 1(DATE_SHIPPED) from ORDER_HIST_LINE where rtrim(left(PART,17)) = '{0}' and DATE_SHIPPED <> '1900-01-01' order by DATE_SHIPPED asc", V.DataTable.dtPartInfo(V.Local.i).PART!FieldValTrim, V.Local.sSQL)
+		F.ODBC.Connection!con.ExecuteAndReturn(V.Local.sSQL, V.Local.sRet)
+		F.Intrinsic.Control.If(V.Local.sRet, =, "")
+			'Set Ship date to today's date 
+			V.Global.sDate.Set(V.Ambient.Date.Formatm/d/yyyy)
+			'RETURN
+			F.Intrinsic.Control.ExitSub
+		F.Intrinsic.Control.Else
+			'RETURN
+			V.Global.sDate.Set(V.Local.sRet.Formatm/d/yyyy)
+			F.Intrinsic.Control.ExitSub
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.Else
+		'Ensure only one date was returned 
+		F.Intrinsic.String.IsInString(V.Local.sRet, "*!*", True, V.Local.bMultiDate)
+		F.Intrinsic.Control.If(V.Local.bMultiDate)
+			F.Intrinsic.String.Build("Multiple shipment dates found for part: {0}.{1}Double check entries in custom table GCG_6621_SHIP_HIST.{1}No commissions will be set.", V.DataTable.dtPartInfo(V.Local.i).PART!FieldValTrim, V.Ambient.NewLine, V.Local.sMsg)
+			F.Intrinsic.UI.Msgbox(V.Local.sMsg, "Multiple Shipment Dates Entered")
+			V.Passed.777777.Set(1)
+			F.Intrinsic.Control.End
+		F.Intrinsic.Control.Else
+			'RETURN 
+			V.Global.sDate.Set(V.Local.sRet.Formatm/d/yyyy)
+			F.Intrinsic.Control.ExitSub
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.EndIf
+	
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, V.Ambient.CurrentSubroutine)
+F.Intrinsic.Control.EndTry
+Program.Sub.findShipDate.End
+
+Program.Sub.Comments.Start
+${$5$}$3.0.0.0$}$1
+${$6$}$bmedina$}$20220309162827314$}$kOipCrsyLBVj2KoSwkcdK23ChxGVcBlEmNZ4Kgp407YNh6PtPp1jhK+x1Gwcw6Gt985bKqqeJp8=
+Program.Sub.Comments.End
